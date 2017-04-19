@@ -1,0 +1,128 @@
+alias cause S0;
+alias vPagenum S1;
+alias ip_addr S2;
+alias physicalSP S3;
+alias counter S4;
+alias freepage S5;
+alias phypage S6;
+alias indicator S7;
+alias iter S8;
+alias start S9;
+
+//print "In exception ";
+cause = EFR % 10;		// Gets value of cause field (size 1 char)
+vPagenum = (EFR / 10) % 100;    // Gets value of BadVAddr 
+ip_addr = (EFR/1000);	//Gets value of IP at the point of exception
+//print(SP);
+
+if(cause != 0) then
+	if(cause == 1) then
+		print("Illegal instruction");
+	endif;
+	if(cause == 2) then
+		print("Illegal memory access");
+	endif;
+	if(cause == 3) then
+		print("Arithmetic exception");
+	endif;
+	if(cause == 4) then
+		print("Illegal operands");
+	endif;
+	SP=SP+2;
+	physicalSP = ([PTBR + 2 * (SP / 512) ] * 512 ) + (SP % 512);
+	[ physicalSP - 1] = 10;
+	breakpoint;
+	inline "JMP 11776";
+endif;
+
+if([PTBR + 2*vPagenum] == -1) then
+	SP=SP+2;
+	physicalSP = ([PTBR + 2 * (SP / 512) ] * 512 ) + (SP % 512);
+	[ physicalSP - 1] = 10;
+	breakpoint;
+	inline "JMP 11776";
+endif;
+
+counter = MEM_LIST+26;
+while(counter < 1344) do
+	if([counter] == 0) then
+		freepage = counter - MEM_LIST;
+		[counter] = 1;
+		break;
+	endif;
+	counter = counter + 1;
+endwhile;
+
+// else part
+
+if(counter == 1344) then
+	start = PTBR + 2*vPagenum;
+	indicator = vPagenum;
+	while 1 do
+		if(start == 1280) then
+			start = 1024;
+			indicator = 0;
+		endif;
+		if(indicator == 3) then
+			start = start + 2;
+			indicator = 0;
+			continue;
+		endif;
+		if([start + 1] == "01" || [start + 1] == "11") then
+			if([MEM_LIST + [start]] > 1) then
+				start = start + 2;
+				indicator = indicator + 1;
+				continue;
+			endif;
+			if([start + 1] == "11") then
+				[start + 1] = "01";
+				start = start + 2;
+				indicator = indicator + 1;
+				continue;
+			endif;
+			freepage = [start]; //VICTIM PAGE
+		//	print(freepage);
+			iter = DISK_LIST + 448;
+			while(iter < 3584) do
+				if([iter] == 0) then
+					[iter] = 1;
+					store(freepage,iter - DISK_LIST);
+					[start] = iter - DISK_LIST;
+					[start + 1] = "00";
+					store(6,20);
+					break;
+				endif;
+			iter = iter + 1;
+			endwhile;
+			if(iter == 3584) then
+				SP=SP+2;
+				physicalSP = ([PTBR + 2 * (SP / 512) ] * 512 ) + (SP % 512);
+				[ physicalSP - 1] = 10;
+				inline "JMP 11776";
+			else
+				break;
+			endif;
+		endif;
+		indicator = indicator + 1;
+		start = start + 2;
+	endwhile;
+endif;
+// else part 
+
+phypage = [PTBR + 2*vPagenum];
+
+if((phypage < 448) && (phypage > 20)) then
+	load(freepage,phypage);
+endif;
+if((phypage < 512) && (phypage > 447)) then
+	load(freepage,phypage);
+	[DISK_LIST + phypage] = [DISK_LIST + phypage] - 1;
+	store(6,20);
+endif;
+[PTBR + 2*vPagenum] = freepage;
+[PTBR + 2*vPagenum + 1] = "11";
+
+SP = SP + 1;
+physicalSP = ([PTBR + 2 * (SP / 512) ] * 512 ) + (SP % 512);
+[physicalSP] = ip_addr;
+ireturn;

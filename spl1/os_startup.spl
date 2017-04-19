@@ -1,0 +1,97 @@
+load(5,19);    //fat and dfl
+load(6,20);
+
+load(7,1);    //exception handler
+load(8,2);
+
+load(9,3);    //timer
+load(10,4);
+
+load(11,5);   //interrupts 1 to 7
+load(12,6);
+
+load(13,7);
+load(14,8);
+
+load(15,9);
+load(16,10);
+
+load(17,11);
+load(18,12);
+
+load(19,13);
+load(20,14);
+
+load(21,15);
+load(22,16);
+
+load(23,17);
+load(24,18);
+
+
+
+PTBR=1024;
+PTLR=4;
+
+[PTBR+0]=21;
+[PTBR+1]="00";
+[PTBR+2]=22;
+[PTBR+3]="00";
+[PTBR+4]=23;
+[PTBR+5]="00";
+[PTBR+6]=28;
+[PTBR+7]="01";
+
+SP=3*512;
+[READY_LIST+0]=0;
+[READY_LIST+1]=2;
+[READY_LIST+31]=0;     //parentpid field for init process is itself;
+
+[28*512]=0;
+
+alias i S0;
+alias j S1;
+
+i=0;
+while(i<=24)do       //MEM_LIST=1280
+[MEM_LIST+i]=1;      //initialise memorylist
+i=i+1;
+endwhile;
+
+while(i<64)do      
+[MEM_LIST+i]=0;
+i=i+1;
+endwhile;
+[MEM_LIST+28]=1;
+
+i=448;
+while(i<512)do
+[DISK_LIST+i]=0;
+i=i+1;
+endwhile;
+store(6,20);
+
+i=1;          //initialise state in pcb except for init
+while(i<32)do
+[READY_LIST+32*i+1]=0;
+i=i+1;
+endwhile;
+
+            //initialise per process open file table for init
+j=15;
+while(j<31)do
+
+ [READY_LIST+j]=-1;
+ j=j+1;
+endwhile;
+
+
+i=0;
+
+while(i<128) do      //initialise system wide open file table
+[FILE_TABLE +i]=-1;
+[FILE_TABLE+i+1]=0;
+i=i+2;
+endwhile;
+
+ireturn;

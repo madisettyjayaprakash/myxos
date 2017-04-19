@@ -1,0 +1,189 @@
+alias physicalSP S0;
+alias syscallno S1;
+alias pid S2;
+alias i S3;
+alias count S4;
+alias j S5;
+alias freepage S6;
+alias validpage S7;
+alias currpid S8;
+alias physicalSP1 S9;
+alias newPTBR S10;
+alias p S11;
+alias k S12;
+
+physicalSP= ([PTBR+2*(SP/512)]*512)+(SP%512);
+syscallno=[physicalSP-1];
+
+if(syscallno==8)then
+
+pid=0;
+while(pid<32)do                       //check for a free pcb
+  if([READY_LIST+32*pid+1]==0)then
+     break;
+  endif;
+     pid=pid+1;
+endwhile;
+
+if(pid>=32)then
+   [physicalSP-2]=-1;
+   ireturn;
+endif;
+
+[READY_LIST+32*pid+0]=pid;               //childpid : pid;
+    //    print(pid);
+                                        //parentpid : currpid;
+
+
+i=25;
+while(i<64)do                        //check memory list for free page 
+  if([MEM_LIST+i]==0)then
+    freepage=i;
+    [MEM_LIST+i]=1;
+    break;
+  endif;
+  i=i+1;
+endwhile;
+
+
+if(i>=64)then
+  j=PTBR;
+  i=0;
+  while(1)do
+     if(j==1280)then
+       j=1024;
+       i=0;
+       continue;
+      endif;
+    if(i==3)then
+      j=j+2;
+      i=0;
+      continue;
+    endif;
+    if([j+1]=="01"||[j+1]=="11")then
+        if([MEM_LIST+[j]]>1)then
+             j=j+2;
+             i=i+1;
+             continue;
+        endif;
+        if([j+1]=="11")then
+             [j+1]="01";
+             j=j+2;
+             i=i+1;
+             continue;
+        endif;
+        freepage=[j];
+        k=448;
+        while(k<512)do
+           if([DISK_LIST+k]==0)then
+              [DISK_LIST+k]=1;
+              store(freepage,k);
+              [j]=k;
+              [j+1]="00";
+              store(6,20);
+              break;
+            endif;
+            k=k+1;
+        endwhile;
+
+        if(k>=512)then
+           SP=SP+2;
+           physicalSP = ([PTBR+2*(SP/512)]*512)+SP%512;
+          [physicalSP-1]=10;
+          inline "JMP 11776";
+        endif;
+        break;
+     endif;
+   j=j+2;
+   i=i+1;
+ endwhile;
+
+
+
+  
+endif;
+
+
+[MEM_LIST+freepage]=1;
+i=[PTBR+6];
+j=0;
+while(j<512) do
+[freepage*512+j]=[i*512+j];
+j=j+1;
+endwhile;
+
+newPTBR=PAGE_TABLE+pid*8;
+[newPTBR+6]=freepage;
+[newPTBR+7]="01";
+
+j=0;
+
+while(j<6)do
+  if([PTBR+j+1]!="00")then
+      [newPTBR+j]=[PTBR+j];
+      [newPTBR+j+1]=[PTBR+j+1];
+      count=[PTBR+j];
+      [MEM_LIST+count]=[MEM_LIST+count]+1;
+
+  else
+     [newPTBR+j]=[PTBR+j];
+     [newPTBR+j+1]=[PTBR+j+1];
+      count=[PTBR+j];
+     if(count >= 448) then
+       [DISK_LIST+count]= [DISK_LIST+count]+1;
+     endif;
+    
+   endif;
+  j=j+2;
+endwhile;
+store(6,20);
+    
+
+currpid=(PTBR-PAGE_TABLE)/8;    //setting pcb contents for child process
+
+i=READY_LIST+32*pid;
+j=READY_LIST+32*currpid;
+
+[i+1]=1;
+[i+2]=BP;
+[i+3]=SP-1;
+[i+4]=[physicalSP];
+[i+5]=newPTBR;
+[i+6]=PTLR;
+[i+7]=R0;
+[i+8]=R1;
+[i+9]=R2;
+[i+10]=R3;
+[i+11]=R4;
+[i+12]=R5;
+[i+13]=R6;
+[i+14]=R7;
+[i+31]=currpid;                      //parentpid field  is stored with parentpid in pcb of child process
+
+count=15;
+while(count<31)do
+[i+count]=[j+count];
+count=count+1;
+endwhile;
+
+
+i=15;
+
+while(i<31)do                               //updating system wide open file table
+if([READY_LIST+32*currpid+i]!=-1)then
+  j=[READY_LIST+32*currpid+i];
+  [FILE_TABLE+j*2+1]=[FILE_TABLE+j*2+1]+1;
+endif;
+  i=i+2;
+endwhile;
+
+[physicalSP-2]=pid;
+
+
+physicalSP1= ([newPTBR+2*(SP/512)]*512) + SP%512;
+
+[physicalSP1-2]=-2;
+
+
+endif;
+ireturn;

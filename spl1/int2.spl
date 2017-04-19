@@ -1,0 +1,139 @@
+alias physicalSP S0;
+physicalSP= ([PTBR + 2*(SP/512)] * 512) + SP%512;
+
+alias syscallno S1;
+syscallno=[physicalSP-1];
+alias fname S2;
+alias a S3;
+alias sftindex S4;
+alias fatindex S5;
+alias currentPID S6;
+alias currentPCB S7;
+alias pftindex S8;
+alias fdes S9;
+
+if(syscallno==2)then                             //Open System Call
+fname=[physicalSP-3];
+
+a=FAT;
+fatindex=0;
+
+while(a<FAT+512)do                         //check whether filename exists in fat
+      if([a]==fname) then
+         break;
+      else
+         a=a+8;
+         fatindex=fatindex+1;
+      endif;
+endwhile;
+
+
+if(a>=FAT+512)then                        //if  filename does not exist return as we cannot open
+       [physicalSP-2]=-1;
+       ireturn;
+endif;
+
+a=0;
+sftindex=0;
+
+while(a<128)do                                  //calculate the index of system wide open file table 
+          if([FILE_TABLE+a]==fatindex)then      //entry by searching for fatindex if found break
+              break;                            //with filetable index
+          else
+              a=a+2;
+              sftindex=sftindex+1;
+          endif;
+endwhile;
+
+if(a>=128)then                              //if no fat index is found
+                                            //traverse the file table till a freespace is found 
+      a=0;
+      sftindex=0;                             
+              while(a<128)do
+                if([FILE_TABLE+a]==-1)then      //if free space found break with the index of filetable
+                    break;
+                else
+                    a=a+2;           
+                    sftindex=sftindex+1;
+                endif;
+              endwhile;
+
+endif;
+
+
+
+if(a>=128)then                              //if no freespace is found then we cannot open the file
+          [physicalSP-2]=-1;                 //return -1 indicating failure
+          ireturn;
+endif;
+
+
+
+
+currentPID=(PTBR-1024)/8;               //now calculate address for perprocess openfile table
+currentPCB=READY_LIST+currentPID*32;
+
+a=currentPCB+15;
+pftindex=0;
+
+while(a<currentPCB+31)do                 //traverse through the per process file table
+             if([a]==-1)then             //if a freespace is found then insert filetable index and
+                 [a]=sftindex;           //set lseek position as zero 
+                 [a+1]=0;
+                 break;
+             else
+                 pftindex=pftindex+1;
+                 a=a+2;
+             endif;
+endwhile;
+
+if(a>=currentPCB+31)then
+         [physicalSP-2]=-1;             //if no freespace is found in per process open file table then
+         ireturn;                       //return -1
+endif;
+
+[FILE_TABLE+ 2*sftindex]=fatindex;                          //the entries in system wide open file table 
+[FILE_TABLE+ 2*sftindex+1]=[FILE_TABLE+ 2*sftindex+1]+1;    //are filled with fat index and file open count
+
+[physicalSP-2]=pftindex;                  //return with filedescriptor(index of per process open file table)
+                                          //if success
+endif;
+
+
+
+if(syscallno==3)then                          //Close SystemCall
+
+fdes=[physicalSP-3];
+
+if(fdes>7)then                            //validate the filedescriptor if invalid return -1
+      [physicalSP-2]=-1;
+      ireturn;
+endif;
+
+
+currentPID=(PTBR-1024)/8;             
+currentPCB=READY_LIST+currentPID*32;
+
+a=currentPCB+15;
+sftindex=[a+2*fdes];
+
+if(sftindex==-1)then                      //check if the entries in perprocess open file table are valid
+       [physicalSP-2]=-1;
+       ireturn;
+endif;
+
+[FILE_TABLE+2*sftindex+1]=[FILE_TABLE+2*sftindex+1]-1;  //open file count is decremented by 1
+
+if([FILE_TABLE+2*sftindex+1]==0)then             //check if open file count is 0,if zero then remove the 
+                                                //system wide open file table entry
+   [FILE_TABLE+2*sftindex]=-1;
+
+endif;
+
+  [a+2*fdes]=-1;                            //now place -1  in perprocess open file table entry of sysindex
+
+  [physicalSP-2]=0;                          //return with zero 
+endif;
+
+
+ireturn;

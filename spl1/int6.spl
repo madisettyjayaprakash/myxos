@@ -1,0 +1,107 @@
+alias physicalSP S0;
+alias fname S1;
+alias syscallno S2;
+alias i S3;
+alias basicblock S4;
+alias countdata S5;
+alias countcode S6;
+alias datablock S7;
+alias validpage S8;
+alias j S9;
+alias softindex S10;
+alias currpid S11;
+
+
+ 
+physicalSP= ([PTBR+2*(SP/512)] *512)+(SP%512);
+syscallno=[physicalSP-1];
+
+if(syscallno==9)then
+  fname=[physicalSP-3];
+  i=0;
+  while(i<64)do                  //search for filename in FAT
+   if([FAT+8*i+0]==fname)then
+     basicblock=[FAT+8*i+2];
+     break;
+   endif;
+   i=i+1;
+  endwhile;
+
+
+
+  if(i>=64)then
+   print("fnamenotpresent");
+   [physicalSP-2]=-1;
+   ireturn;
+  endif;
+
+load(1,basicblock);              //load basicblock to scratchpad
+i=0;
+ while(i<6)do
+    if([PTBR+i+1]!="00") then
+       datablock=[SCRATCHPAD+(i/2)];
+       j=[PTBR+i];
+       [PTBR+i]=datablock;
+       [PTBR+i+1]="00";
+       [MEM_LIST+j]=[MEM_LIST+j]-1;
+    else
+       datablock=[SCRATCHPAD+(i/2)];
+       j=[PTBR+i];
+       [PTBR+i]=datablock;
+       [PTBR+i+1]="00";
+      if(j>=448) then
+        [DISK_LIST+j]=[DISK_LIST+j]-1;
+      endif;
+    endif;
+    i=i+2; 
+  endwhile;
+store(6,20);
+[PTBR+6]="01";
+
+
+
+currpid=(PTBR-PAGE_TABLE)/8;               //remove all the per process open file table entries  and   
+i=15;                                      // system wide open file table entries of current process
+j=READY_LIST+32*currpid;
+while(i<31)do
+if([j+i]!=-1)then
+  softindex=[j+i];
+  [j+i]=-1;
+  [j+i+1]=-1;
+  [FILE_TABLE+2*softindex+1]=[FILE_TABLE+2*softindex+1]-1;
+    if([FILE_TABLE+2*softindex+1]==0)then
+       [FILE_TABLE+2*softindex]=-1;
+    endif;
+endif;
+  i=i+2;
+endwhile;
+
+SP=3*512;
+physicalSP=([PTBR+2*(SP/512)] *512)+(SP%512);
+[physicalSP]=0;
+
+
+endif;
+
+
+
+if(syscallno==11)then
+
+  currpid=(PTBR-PAGE_TABLE)/8;
+  [physicalSP-2]=currpid;
+
+endif;
+
+if(syscallno==12)then
+
+  currpid=(PTBR-PAGE_TABLE)/8;                            //current process pid:currpid;
+  i=[READY_LIST+32*currpid+31]; 
+              
+          physicalSP= ([PTBR+2*(SP/512)] *512)+(SP%512);      //parentpid:i;
+  [physicalSP-2]=i;
+
+endif;
+
+
+
+ireturn;

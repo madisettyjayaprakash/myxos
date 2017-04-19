@@ -1,0 +1,102 @@
+alias physicalSP S0;
+
+
+physicalSP = ([PTBR + 2*(SP/512)] *512) + SP%512;
+
+alias fdes S1;
+alias wtwrite S2;
+alias syscallno S3;
+alias a S4;
+alias b S5;
+alias sysindex S6;
+alias lseekpos S7;
+alias fatindex S8;
+alias c S9;
+alias d S10;
+
+syscallno = [physicalSP-1];
+
+if(syscallno==5)then              //Write System Call
+
+wtwrite=[physicalSP-3];         //fetch wordtowrite and filedescriptor
+fdes=[physicalSP-4];
+
+if(fdes<0||fdes>7)then          //check if the argument filedescriptor is valid
+   [physicalSP-2]=-1;
+   ireturn;
+endif;
+
+a = (PTBR-1024)/8;                            //calculate  PID and then PCB from it 
+
+b = READY_LIST + 32*a + 15 +2*fdes;       //find the system wide open file table  index present
+                                                     // in the file descriptor as index givens
+
+if([b]==-1)then                                 // check if invalid sys wide open file table entry
+     [physicalSP-2]=-1;
+     ireturn;
+else
+     sysindex=[b];                             //store system wide entry index and lseek position in registers
+     lseekpos=[b+1];
+endif;
+
+d=b+1;                                     //backup index of lseekposition to update after write operation
+
+fatindex=[FILE_TABLE + 2*sysindex];         //calculate fatindex from system wide open file table
+b=[FAT + fatindex*8 +2];                    //calculate basicblock number from FAT
+
+load(1,b);                                   //load basic block into scratchpad
+
+a=lseekpos/512;                                //find the datablock number index 
+
+if(a>255)then
+  [physicalSP-2]=-1;                          //if lseek position is at the end of the file
+  ireturn;
+endif;
+
+
+if([512+a]==-1)then 
+                                             //if datablock entry is -1 then allocate a new datablock
+     c=24; 
+      while(c<448) do                        //traverse through diskfree list for a free block in disk
+          if([DISK_LIST+c]==0) then
+             break;
+          else
+             c=c+1;
+          endif;
+       endwhile;
+
+      if(c>=448)then                       //if no free disk block then return -1 (failure)
+       [physicalSP-2]=-1;
+       ireturn;
+      endif;
+   
+    [DISK_LIST+c]=1;                       //update disk free list used(0) for the block found
+  
+    [512+a]=c;                       //update the basic block with the data block number found and at position 
+                                         //as calculated above (lseekpos/512)
+    store(1,b);                       //after making changes in scratchpad store it in the disk
+
+    [FAT+fatindex*8+1]=[FAT+fatindex*8+1]+512;  //filesize in fat is updated by 512
+
+    store(5,19);                      //store the fat and dfl in disk
+    store(6,20);
+
+else
+
+    c=[512+a];                      // datablock is present then fetch the datablock number into c
+
+endif;
+
+    load(1,c);                      //load datablock into scratchpad
+   
+   [512+(lseekpos%512)]=wtwrite;     // find the position to write the word  
+
+    store(1,c);                      //store the data block to disk after writing word
+
+[d]=[d]+1;                           //update the lseekposition by adding 1 to the previous value 
+                                     //obtained from above index (d)
+[physicalSP-2]=0;
+
+endif;
+
+ireturn;

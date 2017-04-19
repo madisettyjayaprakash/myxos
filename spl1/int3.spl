@@ -1,0 +1,109 @@
+alias physicalSP S0;
+
+physicalSP = ([PTBR + 2*(SP/512)] *512) + SP%512;
+
+alias syscallno S1;
+alias fdes S2;
+alias newlseek S3;
+alias sysindex S4;
+alias a S5;
+alias b S6;
+alias fatindex S7;
+alias lseek S8;
+alias filesize S9;
+alias d S10;
+
+syscallno = [physicalSP-1];
+
+if(syscallno==6)then                  //seek System call
+
+newlseek=[physicalSP-3];
+fdes=[physicalSP-4];
+
+ if(fdes<0||fdes>7)then
+   [physicalSP-2]=-1;
+   ireturn;
+ endif;
+ 
+a=(PTBR-1024)/8;
+b= READY_LIST + 32*a + 15;
+
+if([b +2*fdes]==-1)then
+[physicalSP-2]=-1;
+ireturn;
+endif;
+
+sysindex=[b + 2*fdes];
+
+fatindex=[FILE_TABLE+2*sysindex];
+
+a=[FAT+8*fatindex+1];        //filesize is kept in a
+
+if(newlseek<0||newlseek>a)then     //check valid newseek whose value is entry between 0 and filesize
+      [physicalSP-2]=-1;
+      ireturn;
+endif;
+
+[b + (2*fdes)+1]=newlseek;  //update lseek in perprocess open file table with newlseek 
+
+[physicalSP-2]=0;
+
+endif;
+
+
+
+if(syscallno==7)  then            //read system call
+
+fdes=[physicalSP-4];
+
+if(fdes<0||fdes>7)then
+   [physicalSP-2]=-1;
+   ireturn;
+ endif;
+
+a=(PTBR-1024)/8;
+b= READY_LIST + 32*a + 15;
+
+if([b +2*fdes]==-1)then
+    [physicalSP-2]=-1;
+    ireturn;
+endif;
+
+sysindex=[b + 2*fdes];
+lseek=[b+(2*fdes)+1];
+
+  d=b;                                  //backup currentPCB address to update perprocess openfile table
+
+fatindex=[FILE_TABLE + 2*sysindex];         //calculate fatindex from system wide open file table
+
+b=[FAT + fatindex*8 +2];
+                                                 //calculate basicblock number b from FAT
+filesize=[FAT + fatindex*8 +1];
+
+//print(filesize);
+
+if(lseek>=filesize) then
+   [physicalSP-2]=-1;
+   ireturn;
+endif;
+
+load(1,b);                     //load basicblock
+
+a=(lseek/512);                //data block index in the basic block
+
+b=[512+a];                     //find datablocknumber using datablock index from lseekposition
+
+load(1,b);                     //load datablock into scratchpad
+
+a=lseek%512;
+[physicalSP-3]= [512 +a];
+
+[d+(2*fdes)+1]=[d+(2*fdes)+1]+1;
+
+[physicalSP-2]=0;
+
+endif;
+
+
+
+ireturn;

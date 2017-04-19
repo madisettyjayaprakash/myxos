@@ -1,0 +1,170 @@
+alias physicalSP S0;
+physicalSP = ([PTBR+ 2*(SP/512)] * 512) + SP%512;    
+
+alias syscallno S1;
+alias fname S2;
+alias p S3; 
+alias q S4;
+alias Basic_block S5;
+alias fatindex S6;
+alias r S7;
+
+syscallno = [physicalSP - 1];   // Get the systemcallno from the stack
+
+if(syscallno==1) then           // code for create Systemcall
+
+fname=[physicalSP-3];              // Argument Filename
+p=FAT;                          //FAT=5*512;
+
+
+while(p!=FAT+512) do                //checking whether filename already exists 
+       if([p]==fname)then
+           [physicalSP - 2]=0;                  // return value is made 0(success)
+           ireturn;
+       endif;
+       p=p+8;
+endwhile;
+
+
+q=DISK_LIST + 24;                  //check in diskfreelist an empty block;
+
+while(q<=(DISK_LIST + 447))do
+       if([q]==1)then
+          q=q+1;
+       else
+          break;
+       endif;
+endwhile;
+
+    if(q==DISK_LIST+448)then            //if no empty freeblock in disk return -1;
+       [physicalSP - 2]= -1;                // return value is made -1(failure)
+       ireturn;
+    else
+       Basic_block=q - DISK_LIST;         //finding basic block number
+    endif;
+
+q=FAT;           //check whether there is free space in fat to store the details of basic block 
+
+while(q<FAT+512)do               
+       if([q+2]==-1) then  
+          break;
+       else
+          q=q+8;
+       endif;
+endwhile;
+
+if(q==FAT+512) then   
+      [physicalSP - 2]= -1;          // return value is made -1(failure)
+      ireturn;
+else          
+      [q+0]=fname;
+      [q+1]=0;
+      [q+2]=Basic_block;
+endif;
+
+load(1,Basic_block);   //load basic block into scratchpad to read/write into basic block
+
+p=0;
+while(p!=256) do     // store -1 as there are no data blocks in the file (scratchpad )
+     [512+p]=-1;
+      p=p+1;
+endwhile;
+
+store(1,Basic_block);
+[DISK_LIST+Basic_block]=1;  //assign 1  in diskfreelist as a basic block is created in disk
+
+store(5,19);           //store the fat and dfl into disk
+store(6,20); 
+
+[physicalSP - 2]=0;    // return value is made 0(success)
+
+endif;
+
+
+if(syscallno==4)then
+
+fname=[physicalSP-3];       //collect the filename given as argument
+p=0;
+
+while(p<512)do                //search in fat the filename,if notfound return -1(Failure)
+     if([FAT+p]==fname)then   //if found then collect fatindex of the file into a variable
+        break;
+     else
+        p=p+8;
+     endif;
+ endwhile;
+
+ if(p>=512)then
+      [physicalSP-2]=-1;
+      ireturn;
+ endif;
+
+fatindex=p/8;
+
+p=0;
+
+while(p<128)do                   //search for the fatindex in the system wide openfile table
+  
+   if([FILE_TABLE+p]==fatindex)then
+       [physicalSP-2]=-1;           //if found return -1 (as the file is open)
+       ireturn;
+   else
+       p=p+2;                     
+   endif;                        
+endwhile;
+
+Basic_block= [FAT + fatindex*8 + 2];   //find the basicblocknumber from fatindex
+
+
+
+ q=0;
+
+while(q<256)do                     
+     load (1,Basic_block);    //load the basicblock into scratchpad and find the data
+     p=[512+q];               //blocks whose entries are present and load them to
+                              //scratchpad and place emptystring in every datablock
+        if(p!=-1) then         //if u encounter -1 entry in datablocks then break; 
+            load(1,p);
+            r=512;
+        
+             while(r<2*512)do
+                [r]="";
+                r=r+1; 
+             endwhile;
+
+          store(1,p);              //store the updated datablocks in scratcpad to disk
+          [DISK_LIST+p]=0;         //update diskfree list for datablocks
+       else
+          break;
+       endif;
+
+       q=q+1;
+endwhile;
+
+load(1,Basic_block);
+
+q=512;
+
+while(q<2*512)do                //All the basic block entries are replaced with empty string
+    [q]="";
+    q=q+1;
+
+endwhile;
+
+store(1,Basic_block);        //store the basic block in disk after updating its entries with emptystring
+[DISK_LIST+Basic_block]=0;     //update diskfree list for basicblock
+
+
+[FAT+fatindex*8+0]=-1;        //FAT is updated filename,filesize basicblock
+[FAT+fatindex*8+1]=0;
+[FAT+fatindex*8+2]=-1;
+
+store(5,19);              //store fat and dfl into disk
+store(6,20);
+[physicalSP-2]=0;          //return value is made 0(success)
+endif;
+
+
+
+
+ireturn;
